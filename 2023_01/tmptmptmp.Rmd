@@ -1,0 +1,374 @@
+---
+title: "PRE"
+author: "김민영"
+date: "2023-02-06"
+output: html_document
+---
+
+```{r 환경설정}
+rm(list=ls())
+suppressPackageStartupMessages({
+  require(googledrive)
+  require(DataExplorer)
+  require(dplyr)
+  require(data.table)
+  require(magrittr)
+  require(readxl)
+  require(stringr)
+  require(waffle)
+  require(ggthemes) #viz
+})
+#drive_auth()
+```
+
+```{R 데이터로드}
+id = drive_ls("2023_01/data",  pattern="navigation") $id
+id_ls = drive_ls(path = as_id(id))
+
+final <- NULL
+for (i in 1:nrow(id_ls)){
+    drive_download(as_id(id_ls[i,]), overwrite = TRUE)
+    file = assign(id_ls$name[i], read_excel(id_ls$name[i]))
+    final = rbind(final, file)
+    cat(i,"번째","완료","\n")
+}
+
+```
+
+```{r}
+#final
+dt = as.data.table(final)
+dt = dt[,-c(1,3)] #순위, 광역시/도 삭제
+
+
+#변수명 변경
+dt %<>% rename('구' = '시/군/구',
+               '주소' = '도로명주소',
+              '중분류' = '중분류 카테고리',
+              '소분류' = '소분류 카테고리',
+              '빈도' = '검색건수') %>%
+  mutate(주소 = gsub("부산", "", 주소)) %>%
+  relocate(구,주소)
+
+#공항 삭제
+dt %<>% filter(!str_detect(dt$관광지명,'공항'))
+
+
+#주소 파싱
+strsplit(dt$주소, split=" ") %>% transpose(fill="") -> t_str_split
+dt$주소_구=t_str_split[[2]]
+dt$주소_로=t_str_split[[3]] 
+dt$주소_상세주소=t_str_split[[4]] 
+
+dt%>% select(contains('주소'), 빈도, 관광지명) %>% arrange(주소_로) -> tmp
+
+tmp[1:714,][order(-빈도)]
+
+#dt[order(-빈도)][1:1000] -> tmp
+#write.csv(tmp,"top1000.csv", row.names=FALSE)
+
+dt$소분류 %>% table
+```
+
+```{r}
+
+dt$구 %>% table
+dt %>% head
+
+quantile(dt$빈도 ,prob=c(0.05,0.1, 0.25, 0.5, 0.75, 0.95)) 
+
+```
+
+
+
+
+
+```{r 구 와플 차트}
+#임계값 생성
+q50 = quantile(dt$빈도 ,prob=c(0.5))
+q75 = quantile(dt$빈도 ,prob=c(0.75))
+q95 = quantile(dt$빈도 ,prob=c(0.95))
+
+#전체
+
+dt %>%
+  group_by(구) %>%
+  summarize(Total = sum(빈도)) %>%
+  mutate(perc = round(Total/sum(Total) * 100)) %>%
+  arrange(-perc) %>% head(8)-> wf
+
+perc_counts = wf$perc
+names(perc_counts) = wf$구
+
+waffle(perc_counts, rows = 2) + 
+  theme_fivethirtyeight() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "구비율 - 전체")
+
+
+#50퍼센타일 이상
+dt %>%
+  filter(빈도 >= q50) %>%
+  group_by(구) %>%
+  summarize(Total = sum(빈도)) %>%
+  mutate(perc = round(Total/sum(Total) * 100)) %>%
+  arrange(-perc) %>% head(8)-> wf
+
+perc_counts = wf$perc
+names(perc_counts) = wf$구
+
+waffle(perc_counts, rows = 2) + 
+  theme_fivethirtyeight() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "구비율 - 상위 50%")
+
+#75퍼센타일 이상
+dt %>%
+  filter(빈도 >= q75) %>%
+  group_by(구) %>%
+  summarize(Total = sum(빈도)) %>%
+  mutate(perc = round(Total/sum(Total) * 100)) %>%
+  arrange(-perc) %>% head(8)-> wf
+
+perc_counts = wf$perc
+names(perc_counts) = wf$구
+
+waffle(perc_counts, rows = 2) + 
+  theme_fivethirtyeight() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "구 비율 - 상위 25%")
+
+
+
+#95퍼센타일 이상
+dt %>%
+  filter(빈도 >= q95) %>%
+  group_by(구) %>%
+  summarize(Total = sum(빈도)) %>%
+  mutate(perc = round(Total/sum(Total) * 100)) %>%
+  arrange(-perc) %>% head(8)-> wf
+
+perc_counts = wf$perc
+names(perc_counts) = wf$구
+
+waffle(perc_counts, rows = 2) + 
+  theme_fivethirtyeight() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "구 비율 - 상위 5%")
+```
+인사이트 - 전체, 상위5퍼센트까지 모두  해운대구>기장군>부산진구>강서구>수영구 위주임
+
+```{r 카테고리}
+dt %>%
+  filter(빈도 >= q75)
+
+
+dt$소분류 %>% table
+
+dt %<>% mutate(중분류 = gsub("관광", " ", 중분류),
+              중분류 = gsub("스포츠", " ", 중분류))
+
+
+
+dt %>% 
+  group_by(소분류) %>%
+  summarize(Total = sum(빈도)) %>%
+  arrange(-Total)
+
+
+dt %>% 
+  group_by(중분류,소분류) %>%
+  summarize(Total = sum(빈도)) %>%
+  arrange(-Total)
+
+
+
+
+dt[,freq := sum(빈도), keyby=.(중분류,소분류)][order(-freq)]
+
+
+
+
+dt[, .(freq = sum(빈도)), keyby=.(중분류,소분류)][order(-freq)] -> tmp
+
+
+ggplot(tmp) +
+ aes(x = 중분류, y = freq, fill = 중분류) +
+ geom_boxplot() +
+ scale_fill_hue(direction = 1) +
+ labs(x = " ", y = " ", title = "중분류별 빈도 분포", caption = " ") +
+ theme(axis.text.y = element_blank(),
+       plot.title = element_text(size = 15L, face = "bold", hjust = 0.5), 
+       plot.caption = element_text(hjust = 0.5), 
+       axis.title.x = element_text(size = 15L))
+quantile(dt$소분류 ,prob=c(0.05))
+
+
+
+dt %>% filter(소분류 =='웰니스관광')
+
+dt$소분류류
+  
+```
+
+```{R 내국인}
+범례 = c("주차장 부족", "관광정보 안내부족", "관광지간 먼 이동거리",
+       "대중교통 불편", "부당요금","불친절","예약 취소",
+       "위생 불량", "음식점 불만", "쇼핑시설","장애인시설",
+       "의사소통", "기타")
+
+수치 = c(36.6, 16.5, 13.1, 10.8, 9.3, 7.9, 7.8, 7.5, 6.9, 5.6, 2.0, 1.6, 0.8)
+
+dt = data.table(범례,수치)
+
+
+dt %>%
+ggplot() +
+ aes(x = 범례, y = 수치, fill = 범례) +
+ geom_col() +
+  geom_text(aes(x = 범례, y = 수치, label = 수치, vjust = -0.7))+
+  scale_x_discrete(limits = c("주차장 부족", "관광정보 안내부족", "관광지간 먼 이동거리",
+       "대중교통 불편", "부당요금","불친절","예역 취소",
+       "위생 불량", "음식점 불만", "쇼핌시설","장애인시설",
+       "의사소통", "기타"))+
+ scale_fill_hue(direction = 1) +
+ labs(x = " ", y = " ", title = "부산관광 불만족/불편사항(중복응답)", subtitle = "(n=1,000, 단워:%)", 
+ caption = " ") +
+ ggthemes::theme_tufte() +
+ theme(plot.title = element_text(size = 20L, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+       legend.title = element_blank(),
+       legend.position = 'none')
+
+##########################################
+
+c("주차장 부족" = "magenta", 
+"관광정보 안내부족" = "gray", 
+"관광지간 먼 이동거리" = "magenta",
+"대중교통 불편" = "magenta", 
+"부당요금" = "gray",
+"불친절" = "gray",
+"예약 취소" = "gray",
+"위생 불량" = "gray", 
+"음식점 불만" = "gray", 
+"쇼핑시설" = "gray",
+"장애인시설" = "gray",
+"의사소통" = "gray", 
+"기타"="gray") ->palette
+
+
+
+dt %>%
+  ggplot() +
+  aes(x = 범례, y = 수치, fill = 범례) +
+  geom_col() +
+  geom_text(aes(x = 범례, y = 수치, label = paste0(수치,"%"), vjust = -0.7))+
+  scale_y_continuous(expand = expansion(mult = 0), limits = c(0, dt$수치 * 1.1))+
+  scale_x_discrete(limits = c("주차장 부족", "관광정보 안내부족", "관광지간 먼 이동거리",
+                              "대중교통 불편", "부당요금","불친절","예약 취소",
+                              "위생 불량", "음식점 불만", "쇼핑시설","장애인시설",
+                              "의사소통", "기타"))+
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "내국인 부산관광 불만족/불편사항(중복응답)", subtitle = "(n=1,000, 단워:%)", 
+       caption = " ") +
+  theme(plot.title = element_text(size = 20L, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.title = element_blank(),
+        legend.position = 'none')
+
+
+```
+
+
+
+```{r 내국인 -파이}
+dt %>% mutate(재범주 = case_when(범례 == '주차장 부족' | 
+                                범례 == '관광지간 먼 이동거리' |
+                                범례 == '대중교통 불편' ~ "교통",
+                              범례 == '없음'~ "없음",
+                              TRUE ~ '기타')) %>%
+  group_by(재범주) %>%
+  summarise(수치 = sum(수치)) -> wf
+
+ggplot(wf,aes(x= "",y=수치, fill=재범주)) + 
+  theme_tufte() +
+  geom_bar(stat="identity", width=1, color="white")+
+  scale_y_continuous(breaks = c(0))+
+  coord_polar('y', start=0) + 
+  geom_text(aes(label = paste0(재범주,"\n",수치,"%")),
+            position = position_stack(vjust=0.5))+
+  ggtitle("제목미정") +
+  labs(x=" ",y=" ")+
+  theme(title = element_text(size=9),
+        plot.title = element_text( face = "bold",hjust = 0.5, size = 15),
+        legend.title = element_blank(),
+        legend.position = 'none')
+
+```
+
+```{r 외국인}
+범례 = c("주차장 부족", "의사소통", "관광정보 안내부족", "관광지간 먼 이동거리",
+       "부당요금","대중교통 불편","불친절","쇼핑시설","예약취소 어려움", "차별적 태도",
+       "음식점 불만","위생 불량", "난폭운전")
+
+수치 = c(14.4, 13.4,8.4,7.7,6.3,4.9,4.7,2.8,2.4,1.6,0.8,0.4,0.1)
+dt = data.table(범례,수치)
+
+
+#팔레트
+
+c("주차장 부족" = "magenta" , 
+"의사소통" = "gray" , 
+"관광정보 안내부족"= "gray", 
+"관광지간 먼 이동거리"  = "magenta" ,
+"부당요금" = "gray" ,
+"대중교통 불편"  = "magenta" ,
+"불친절"  = "gray" ,
+"쇼핑시설"  = "gray",
+"예약취소 어려움"  = "gray" , 
+"차별적 태도" = "gray" ,
+"음식점 불만"  = "gray" ,
+"위생 불량"  = "gray" , 
+"난폭운전"  = "gray") ->palette 
+
+
+
+dt %>%
+  ggplot() +
+  aes(x = 범례, y = 수치, fill = 범례) +
+  geom_col() +
+  geom_text(aes(x = 범례, y = 수치, label = paste0(수치,"%"), vjust = -0.7))+
+  scale_y_continuous(expand = expansion(mult = 0), limits = c(0, dt$수치 * 1.1))+
+  scale_x_discrete(limits = c("주차장 부족", "의사소통", "관광정보 안내부족", "관광지간 먼 이동거리",
+                              "부당요금","대중교통 불편","불친절","쇼핑시설","예약취소 어려움", "차별적 태도",
+                              "음식점 불만","위생 불량", "난폭운전"))+
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "외국인 부산관광 불만족/불편사항(중복응답)", subtitle = "(n=1,000, 단워:%)", 
+       caption = " ") +
+  theme_tufte() +
+  theme(plot.title = element_text(size = 20L, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.title = element_blank(),
+        legend.position = 'none')
+
+```
+
+
+```{r}
+
+```
