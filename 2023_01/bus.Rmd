@@ -1,0 +1,312 @@
+---
+title: "bus data"
+author: "김민영"
+date: "2023-02-08"
+output: html_document
+---
+
+# 1. 환경 설정
+```{r 환경설정, include=FALSE}
+# rm(list=ls())
+suppressPackageStartupMessages({
+  require(googledrive)
+  require(DataExplorer)
+  require(dplyr)
+  require(data.table)
+  require(magrittr)
+  require(lubridate) # ts
+  require(waffle) #viz
+  require(ggthemes) #viz
+  require(caret) # sampling
+
+})
+#drive_auth()
+```
+
+
+# 2. 데이터 로드
+```{R 데이터로드,warning=FALSE}
+#1. 승객수 
+id = drive_ls("2023_01/data",  pattern="bus") $id
+id_ls = drive_ls(path = as_id(id))
+
+final <- NULL
+for (i in 1:nrow(id_ls)){
+    drive_download(as_id(id_ls[i,]), overwrite = TRUE)
+    file = assign(id_ls$name[i], read.csv(id_ls$name[i], 
+                                       fileEncoding = "euc-kr",
+                                       col.names = c('연월', '일', '시간', '정류장id', '정류장이름',
+                                                     '경도','위도','승객수')))
+    final = rbind(final, file)
+    cat(i,"번째","완료","\n")
+}
+
+#2. 좌표
+id = drive_ls("2023_01/data/tmp",  pattern="코드") $id 
+tmp = tempfile(fileext = ".csv")
+drive_download(as_id(id), path = tmp, overwrite = TRUE)
+좌표 = fread(tmp,
+           col.names = c('정류장id'))
+```
+# 3. EDA & 전처리
+```{r BASIC EDA}
+plot_intro(final) 
+final %>% str
+```
+
+- 33214604 x 8 (1.4Gb)
+
+
+```{r 전처리}
+#step1. 위경도 삭제
+final = as.data.table(final)
+final = final[,-c(6,7)] 
+
+#step2. 좌표 설정
+좌표 = as.vector(좌표$정류장id) 
+#final %>% filter(정류장id %in% 좌표) -> dt
+
+#final # 33,214,604 × 6
+
+#step3. 결측치 삭제
+final = final[complete.cases(final),] #33,214,603 × 6 
+
+```
+
+- 해당 좌표 전체 데이터에서 약 1.8% 차지함
+- 결측치 1개는 삭제처리함.
+
+# 4. 피처엔지니어링
+## 4-1. 시간 및 좌표 변수 생성
+```{r 변수 생성-시간}
+# 연월일, 요일,주,좌표 구분 생성
+final %>% mutate( 연월일 = parse_date_time(일, "%Y%m%d"),
+                  요일 = wday(연월일, label = TRUE, locale = Sys.getlocale("LC_TIME")),
+                  주 = case_when(요일 %in% c("월","화","수","목","금") ~ "주중",
+                                요일 =="토" ~ "토요일",
+                                요일 == "일" ~ "일요일"),
+                  정류장id = case_when(정류장id %in% 좌표 ~ "선정노선",
+                                TRUE ~ "기타노선")) %>%
+  select(-연월, -일,-정류장이름) -> tmp
+
+```
+
+## 4-2. 주중 대비 주말 수요 비교
+```{r}
+#step0. 변수 수정 (토,일 => 주말)
+final %>% mutate( 연월일 = parse_date_time(일, "%Y%m%d"),
+                  요일 = wday(연월일, label = TRUE, locale = Sys.getlocale("LC_TIME")),
+                  주 = case_when(요일 %in% c("월","화","수","목","금") ~ "주중",
+                                TRUE ~ "주말"),
+                  정류장id = case_when(정류장id %in% 좌표 ~ "in",
+                                TRUE ~ "out")) %>%
+  select(-연월, -일,-정류장이름) -> tmp
+
+# step1. 집계
+tmp[정류장id == "out" & 주 == "주말", .(주말평균승객수 = mean(승객수)) ] # 13.69136	
+tmp[정류장id == "out" & 주 == "주중", .(주중평균승객수 = mean(승객수)) ] # 17.8491				
+tmp[정류장id == "in" & 주 == "주말", .(주말평균승객수 = mean(승객수)) ] # 36.9698				
+tmp[정류장id == "in" & 주 == "주중", .(주중평균승객수 = mean(승객수)) ] # 42.498	
+#1번
+(13.69136/17.8491)* 100
+(36.9698/42.498)*100
+
+수치 = c(76.7, 87)
+정류장 = c("기타노선정류장", "선정노선정류장")
+tmp2 = data.table(수치,정류장)
+
+
+#step2. 그래프 생성
+palette = c("선정노선정류장" = "magenta", 
+            "기타노선정류장" = "gray")
+
+ggplot(tmp2) +
+  aes(x = 정류장, y = 수치, fill = 정류장) +
+  geom_col(width= 0.8) +
+  geom_text(aes(x = 정류장, y = 수치, label = paste0(수치,"%"), vjust = -0.5),size=5)+
+  scale_y_continuous(expand = expansion(mult = 0), limits = c(0, tmp2$수치 * 1.35))+
+  scale_x_discrete(limits = c("선정노선정류장", "기타노선정류장")) +
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "주중 대비 주말 수요 비교", subtitle = "2022.02.01~2023.01.31 (단위:%)") +
+  theme(plot.title = element_text(size = 20L, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size=15),
+        legend.title = element_blank(),
+        legend.position = 'none')
+
+```
+
+## 4-3. 주중 대비 토요일 수요 비교
+```{r}
+# step1. 집계
+tmp[정류장id == "기타노선" & 주 == "주중", .(주중평균승객수 = mean(승객수)) ] # 17.8491		
+tmp[정류장id == "기타노선" & 주 == "토요일", .(토요일평균승객수 = mean(승객수)) ] # 15.15046				
+tmp[정류장id == "선정노선" & 주 == "주중", .(주말평균승객수 = mean(승객수)) ] # 42.498				
+tmp[정류장id == "선정노선" & 주 == "토요일", .(토요일평균승객수 = mean(승객수)) ] # 40.95024
+
+
+#15.15046/17.8491*100
+#40.95024/42.498*100
+#96.35804 - 84.88081
+
+정류장 = c("선정노선정류장", "기타노선정류장")
+수치 = c(96.35804, 84.88081)
+tmp3 = data.table(정류장, 수치)
+
+# step2. 그래프 생성
+ggplot(tmp3) +
+  aes(x = 정류장, y = 수치, fill = 정류장) +
+  geom_col(width= 0.8) +
+  geom_text(aes(x = 정류장, y = 수치, label = paste0(round(수치,1),"%"), vjust = -0.5),size=5)+
+  scale_y_continuous(expand = expansion(mult = 0), limits = c(0, tmp2$수치 * 1.35))+
+  scale_x_discrete(limits = c("선정노선정류장", "기타노선정류장")) +
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "주중 대비 토요일 수요 비교", subtitle = "2022.02.01~2023.01.31 (단위:%)") +
+  theme(plot.title = element_text(size = 20L, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size=15),
+        legend.title = element_blank(),
+        legend.position = 'none')
+```
+
+## 4-4. 주중 대비 일요일 수요 비교
+```{r}
+# step1. 집계
+tmp[정류장id == "기타노선" & 주 == "주중", .(주중평균승객수 = mean(승객수)) ] # 17.8491	
+tmp[정류장id == "기타노선" & 주 == "일요일", .(일요일평균승객수 = mean(승객수)) ] # 12.0777					
+tmp[정류장id == "선정노선" & 주 == "주중", .(주말평균승객수 = mean(승객수)) ] #42.498					
+tmp[정류장id == "선정노선" & 주 == "일요일", .(일요일평균승객수 = mean(승객수)) ] # 32.86868	
+
+12.0777/17.8491 * 100 #67.6656
+32.86868/42.498 * 100 # 77.34171
+
+정류장 = c("선정노선정류장", "기타노선정류장")
+수치 = c(77.34, 67.67)
+tmp4 = data.table(정류장,수치)
+
+
+# step2. 그래프 생성
+ggplot(tmp4) +
+  aes(x = 정류장, y = 수치, fill = 정류장) +
+  geom_col(width= 0.8) +
+  geom_text(aes(x = 정류장, y = 수치, label = paste0(round(수치,1),"%"), vjust = -0.5), size=5)+
+  scale_y_continuous(expand = expansion(mult = 0), limits = c(0, tmp2$수치 * 1.35))+
+  scale_x_discrete(limits = c("선정노선정류장", "기타노선정류장")) +
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "주중 대비 일요일 수요 비교", subtitle = "2022.02.01~2023.01.31 (단위:%)") +
+  theme(plot.title = element_text(size = 20L, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size=15),
+
+        legend.title = element_blank(),
+        legend.position = 'none')
+
+```
+
+평일 주말 편차 크나 작냐 우리가 선정한 정류장의 편차가 아닌애들 보다 적었으면 좋겠다
+
+
+## 4-5. 요일별 패턴 비교
+### 4-5-1. 샘플링
+
+- 기타선정 노선 데이터의 패턴과 비교해보고자 함. 
+- 계산 시간을 절감하고자 언더샘플링 진행함. 
+```{r}
+
+#tmp[, 
+#     .(일승객수 = sum(승객수)), 
+#      keyby =.( 요일 , 정류장id )] -> tmp_new
+
+#step1. 데이터셋 생성
+tmp %>% mutate(정류장id = case_when(정류장id=="기타노선" ~ "기타노선정류장",
+                                 정류장id=="선정노선" ~ "선정노선정류장")) -> tmp_new
+tmp_new %>% select(-시간, -연월일) -> tmp_new
+
+#step2. 샘플링
+tmp_new[, 정류장id := factor(정류장id)]
+tmp_new = downSample(tmp_new[,-1], tmp_new$정류장id)
+
+#step3. 집계
+tmp_new = as.data.table(tmp_new)
+tmp_new[, 
+     .(일승객수 = sum(승객수)), 
+      keyby =.(요일 , Class )] -> tmp_new
+
+#tmp_new %>% filter(Class == "기타노선정류장") %>% summarise(sum(일승객수))
+#tmp_new %>% filter(Class == "선정노선정류장") %>% summarise(sum(일승객수))
+                  
+```
+
+
+
+- 승객수 범위 , 하루 당 탕 승객수 ,,, 
+Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+1.00    3.00    9.00   28.85   28.00 1710.00 
+
+
+### 4-5-2. 시각화
+```{r 시각화}
+palette = c("선정노선정류장" = "magenta", 
+            "기타노선정류장" = "gray")
+
+
+ggplot(tmp_new) +
+  aes(x = 요일, y = 일승객수, fill = Class) +
+  geom_col() +
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "요일별 패턴", subtitle = "2022.02.01~2023.01.31")+
+  facet_wrap(vars(Class))+
+  theme(plot.title = element_text(size = 20L, face = "bold"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size=15),
+        
+        legend.title = element_blank(),
+        legend.position = 'none')
+```
+
+값: 2.4배 높음
+패턴: 금->토 변화 비교 파악 했음.
+
+# 5. 기타 집계 확인
+```{r}
+final %>% mutate( 연월일 = parse_date_time(일, "%Y%m%d"),
+                  요일 = wday(연월일, label = TRUE, locale = Sys.getlocale("LC_TIME")),
+                  주 = case_when(요일 %in% c("월","화","수","목","금") ~ "주중",
+                                요일 =="토" ~ "토요일",
+                                요일 == "일" ~ "일요일"),
+                  정류장id = case_when(정류장id %in% 좌표 ~ "선정노선",
+                                TRUE ~ "기타노선")) %>%
+  select(-연월, -일,-정류장이름) -> new
+
+
+
+#집계
+new = as.data.table(new)
+new[, sum_일승객수 := sum(승객수), keyby =.(Class,요일)]
+new[, avg_일승객수 := mean(승객수), keyby =.(Class,요일)]
+
+
+
+#위치값 확인
+quantile(new$승객수 , probs = c(0.01,0.05,0.25, 0.75,0.99))
+
+
+q99 = quantile(new$승객수 , probs = c(0.99))
+q75 = quantile(new$승객수 , probs = c(0.75))
+
+
+new %>% filter(승객수 <=q99)
+new %>% filter(승객수 <=q75)
+
+
+new %>% filter(Class =="in") ->new_in
+
+new_in$승객수 %>% summary
+
+```
+
+
