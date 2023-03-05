@@ -1,0 +1,103 @@
+---
+title: "발표자료 시각화"
+author: "김민영"
+date: "2023-03-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+  require(dplyr)
+  require(data.table)
+  require(magrittr)
+  require(ggplot2)
+  require(ggthemes) #viz
+  require(showtext)
+
+})
+```
+
+```{R, 폰트 설정}
+
+font_add(family="AppleSDGothicNeo",
+         regular='C:/Users/alsdu/Downloads/Apple_산돌고딕_Neo/AppleSDGothicNeoR.ttf',
+         bold='C:/Users/alsdu/Downloads/Apple_산돌고딕_Neo/AppleSDGothicNeoB.ttf')
+
+font_families()
+```
+
+# 5. 통계자료시각화
+## 5-1. 내국인
+### 5-1-1. 막대
+```{r gif.showtext}
+#1. 색상 -자동
+범례 = c("주차장 부족", "관광정보 안내부족", "관광지간 먼 이동거리",
+       "대중교통 불편", "부당요금","불친절")
+수치 = c(36.6, 16.5, 13.1, 10.8, 9.3, 7.9)
+dt = data.table(범례,수치)
+
+
+#2. 색상 - 팔레트 지정
+c("주차장 부족" = "#4f63d3", 
+"관광정보 안내부족" = "gray", 
+"관광지간 먼 이동거리" = "#4f63d3",
+"대중교통 불편" = "#4f63d3", 
+"부당요금" = "gray",
+"불친절" = "gray") ->palette
+
+
+dt %>%
+  ggplot() +
+  aes(x = 범례, y = 수치, fill = 범례) +
+  geom_col() +
+  geom_text(aes(x = 범례, y = 수치, label = paste0(수치,"%"), vjust = -0.7))+
+  scale_y_continuous(expand = expansion(mult = 0), limits = c(0, dt$수치 * 1.1))+
+  scale_x_discrete(limits = c("주차장 부족", "관광정보 안내부족", "관광지간 먼 이동거리",
+                              "대중교통 불편", "부당요금","불친절"))+
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "내국인 부산관광 불만족/불편사항(중복응답)", subtitle = "(n=1,000, 단워:%)", 
+       caption = " ") +
+  theme(plot.title = element_text(size = 20L, face = "bold", family = "AppleSDGothicNeo"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.title = element_blank(),
+        legend.position = 'none')
+
+```
+
+
+## 5-2. 외국인
+```{r gif.showtext}
+범례 = c("주차장 부족", "의사소통", "관광정보 안내부족", "관광지간 먼 이동거리",
+       "부당요금","대중교통 불편")
+수치 = c(14.4, 13.4, 8.4, 7.7, 6.3, 4.9)
+dt = data.table(범례,수치)
+#팔레트
+
+c("주차장 부족" = "#4f63d3" , 
+"의사소통" = "gray" , 
+"관광정보 안내부족"= "gray", 
+"관광지간 먼 이동거리"  = "#4f63d3" ,
+"부당요금" = "gray" ,
+"대중교통 불편"  = "#4f63d3") ->palette 
+
+#시각화
+dt %>%
+  ggplot() +
+  aes(x = 범례, y = 수치, fill = 범례) +
+  geom_col() +
+  geom_text(aes(x = 범례, y = 수치, label = paste0(수치,"%"), vjust = -0.7))+
+  scale_y_continuous(expand = expansion(mult = 0), limits = c(0, dt$수치 * 1.1))+
+  scale_x_discrete(limits = c("주차장 부족", "의사소통", "관광정보 안내부족", "관광지간 먼 이동거리",
+                              "부당요금","대중교통 불편"))+
+  scale_fill_manual(values=palette) +
+  labs(x = " ", y = " ", title = "외국인 부산관광 불만족/불편사항(중복응답)", subtitle = "(n=1,000, 단워:%)", 
+       caption = " ") +
+  theme(plot.title = element_text(size = 20L, face = "bold",family = "AppleSDGothicNeo"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.title = element_blank(),
+        legend.position = 'none')
+```
+
+
