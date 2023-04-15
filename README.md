@@ -50,8 +50,8 @@
 <br>
 
 <div class="image-container">
-  <img src="https://user-images.githubusercontent.com/93497667/232216526-99e27c85-daac-4a25-b49a-73c3848aaf25.jpg" alt="image"  width="500"/>
-  <img src="https://user-images.githubusercontent.com/93497667/232216651-c00ad08b-0d94-43ef-998b-8851b734d169.jpg" alt="image"  width="500"/>
+  <img src="https://user-images.githubusercontent.com/93497667/232216526-99e27c85-daac-4a25-b49a-73c3848aaf25.jpg" alt="image"  width="400"/>
+  <img src="https://user-images.githubusercontent.com/93497667/232216651-c00ad08b-0d94-43ef-998b-8851b734d169.jpg" alt="image"  width="400"/>
 </div>
 
 
