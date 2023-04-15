@@ -2,7 +2,7 @@
 - 2023 데이터 활용 부산관광 아이디어 공모전 출품작
 - 기간: ‘23년 02월 ~ ‘23년 03월(1개월)
 - 성과: 117팀 중 동상(3등) 수상 
-- Toos: R, Qgis
+- Tools: R, Qgis
 - 활용 데이터
   - [한국관광데이터랩,  &nbsp; 내비게이션 지역별 검색건수.xslx, &nbsp; ‘22년 02월 ~ ‘23년 01월, &nbsp; 12,822 x 8 (2.6MB)](https://datalab.visitkorea.or.kr/)
   - [금융빅데이터플랫폼, &nbsp; 버스 정류소별 이용객 통계 데이터.csv, &nbsp; ‘22년 02월 ~ ‘23년 01월, &nbsp; 33,213,604 x 8 (1.4GB)](https://www.bigdata-finance.kr/)
